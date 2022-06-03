@@ -3,20 +3,12 @@
 # Этот скрипт предназначен для достраивания полугоризонталей. В качестве входных данных используются
 # горизонтали, содержащие значения высоты
 
-# ПЕРЕД ЗАПУСКОМ ЗАДАЙТЕ ПУТИ К ВХОДНЫМ И ВЫХОДНЫМ ДАННЫМ - ЭТО СТРОКИ 15, 17, 27, 66. ОБРАТИТЕ ВНИМАНИЕ
-# НА СТРОКУ 67
+# ПЕРЕД ЗАПУСКОМ ОБРАТИТЕ ВНИМАНИЕ НА СТРОКУ 55
 
 # подключение необходимых библиотек 
 import arcpy
 from arcpy.sa import *
 import arcpy.cartography as CA
-
-# ЗАДАЙТЕ ПУТЬ К ПАПКЕ, КУДА БУДЕТ ЗАПИСАН РЕЗУЛЬТАТ - SHAPE-ФАЙЛ С ГОРИЗОНТАЛЯМИ
-# line_path = "C:/MagDiss_test/testing_in_diff_areas/6th_area/"
-# # создание базы данных для записи промежуточных и конечных результатов
-# arcpy.CreateFileGDB_management(line_path, "midline_processing.gdb")
-# # ЗАДАЙТЕ ПУТЬ К БАЗЕ ДАННЫХ, КУДА БУДУТ ЗАПИСАНЫ ВСЕ ФАЙЛЫ
-# arcpy.env.workspace = str(line_path) +  "midline_processing.gdb"
 
 
 
@@ -24,9 +16,6 @@ def contour_prolongation(input_contours,
                          height_field, 
                          intermediate_raster_cellsize, 
                          output_contours):
-    # ВВЕДИТЕ ПУТЬ К ФАЙЛУ С ГОРИЗОНТАЛЯМИ
-    # fc = "C:/MagDiss_test/new_lines_full.shp" # набор исходных данных с горизонталями, feature class
-    # fc = arcpy.FeatureClassToFeatureClass_conversion(fc, arcpy.env.workspace, 'input_lines')
     # Описание свойств слоя с горизонталями
     desc = arcpy.Describe(input_contours)
     xmin = desc.extent.XMin
@@ -44,7 +33,7 @@ def contour_prolongation(input_contours,
     # размер ячейки 
     cellSize = 3
 
-    arcpy.AddMessage("создание растров постоянного значения")
+    arcpy.AddMessage("Creation of the rasters with constant value")
     # Создаем 2 растра постоянного значения (constant raster) для записи значений
     # Задаем очень большие (вряд ли достижимые) значения евклидового расстояния. Экстент по Х+ экстент по У
     minVal_1 = CreateConstantRaster(full_ext, "FLOAT", cellSize) 
@@ -61,7 +50,7 @@ def contour_prolongation(input_contours,
     # здесь будет записано второе минимальное значение после цикла
     minVal_2_numpy_array = arcpy.RasterToNumPyArray(minVal_2) 
 
-    arcpy.AddMessage("Расчет высоты сечения рельефа")
+    arcpy.AddMessage("Calculation of the contour interval")
     # НАЗВАНИЕ ПОЛЯ, СОДЕРЖАЩЕГО ВЫСОТЫ ГОРИЗОНТАЛЕЙ
     field = "Habs"
     # ЕСЛИ ПОЛЕ С ВЫСОТАМИ НАЗЫВАЕТСЯ НЕ 'Habs', ТО РАСКОММЕНТИРУЙТЕ СЛЕДУЮЩУЮ СТРОКУ
@@ -77,7 +66,7 @@ def contour_prolongation(input_contours,
     heights_unique = list(set(heights))
     # сортировка уникальных значений высот по возрастанию
     heights_unique.sort()
-    arcpy.AddMessage("Уникальные значения высот:")
+    arcpy.AddMessage("Unique z-values:")
     print(heights_unique)
 
     # список, в который будут записана высота сечения между соседними горизонталями
@@ -94,9 +83,9 @@ def contour_prolongation(input_contours,
     steps_unique.sort()
     # последнее значение списка соответствует высоте сечения рельефа
     contour_step = steps_unique[-1]
-    arcpy.AddMessage("сечение рельефа составляет {0} м.".format(contour_step))
+    arcpy.AddMessage("The contour interval is {0} m".format(contour_step))
 
-    arcpy.AddMessage("Создание атрибутивного поля для разделения изолиний на основные и полугоризонтали")
+    arcpy.AddMessage("Creation of the new field to divide contour lines into intermediate and supplementary")
     arcpy.AddField_management(input_contours, "line_type", "TEXT", field_alias = "line_type")
     fields = ["Habs", "line_type"]
     with arcpy.da.UpdateCursor(input_contours, fields) as cursor:
@@ -118,17 +107,13 @@ def contour_prolongation(input_contours,
     arcpy.SelectLayerByAttribute_management("lyr", "NEW_SELECTION", "\"line_type\" = 'intermediate'")
 
 
-    arcpy.AddMessage("Расчет евклидового расстояния")
+    arcpy.AddMessage("Euclidean distance calculation")
     # максимальное расстояние, больше которого ячейкам будет присвоено значение "no data"
     maxDistance = full_ext
     # евклидово расстояние нужно для создания срединных линий между 2 основными горизонталями
     outEucDistance = EucDistance("lyr", maxDistance, cellSize) 
     # сохранение 
     outEucDistance.save("EuDist")
-
-    # конвертация горизонталей в растровый формат по полю Habs
-    # rst_lines = "rst_lines"
-    # ras_lines = arcpy.PolylineToRaster_conversion("lyr", "Habs", "rst_lines", "MAXIMUM_LENGTH", "NONE", cellSize)
 
     # слой подвыборки
     subset_layer = "lyr"
@@ -140,10 +125,10 @@ def contour_prolongation(input_contours,
     subHvalues = [row[0] for row in arcpy.da.SearchCursor(subset_layer, "Habs")]
     uniqueSubHValues = set(subHvalues)
     subHvalues = list(uniqueSubHValues) # конвертация в список, уникальные значения высот
-    arcpy.AddMessage("уникальные значения высот:")
+    arcpy.AddMessage("Unique z-values:")
     print(subHvalues)
 
-    arcpy.AddMessage("Сравнение полученного в цикле евклидового расстояния с изначальным")
+    arcpy.AddMessage("Comparison new euclidean distance with primary one")
     # В этом цикле будет происходить сравнение значений нового евклидового расстояния (ЕР) с изначальным
     for i in subHvalues:
         # Делаем выборку внутри выборки
@@ -168,7 +153,7 @@ def contour_prolongation(input_contours,
                 EucDist_numpy[row, col] < minVal_2_numpy_array[row, col]):
                     minVal_2_numpy_array[row, col] = EucDist_numpy[row, col]
 
-    arcpy.AddMessage("Создание срединных линий")                
+    arcpy.AddMessage("Middle lines creation")                
     # перезаписанные растры постоянного значения с учетом евклидового расстояния
     # перевод из массива в растровый формат
     minVal_1_new = arcpy.NumPyArrayToRaster(minVal_1_numpy_array, arcpy.Point(xmin, ymin), cellSize, cellSize)
@@ -190,7 +175,7 @@ def contour_prolongation(input_contours,
     # Преобразование в целочисленное значение
     set0_int = Int(set0)
 
-    arcpy.AddMessage("Обработка срединных линий") 
+    arcpy.AddMessage("Middle line processing") 
     # Утончение растра
     # фоновые значения - nodata, т.к. на предыдущем этапе они заданы; скругление углов (round)
     ThinRaster = Thin(set0_int, background_value = "NODATA", filter = "NO_FILTER", corners = "ROUND") 
@@ -207,7 +192,7 @@ def contour_prolongation(input_contours,
     midlines_smooth = "midlines_smooth"
     CA.SmoothLine(midlines_smpl, midlines_smooth, "PAEK", tolerance = 5)
 
-    arcpy.AddMessage("Отбор срединных линий") 
+    arcpy.AddMessage("Selection of middle lines") 
     arcpy.MakeFeatureLayer_management(input_contours, "suppl_lines")  
     # Отделение полугоризонталей 
     suppl_lines = arcpy.SelectLayerByAttribute_management("suppl_lines", "NEW_SELECTION",
@@ -217,7 +202,7 @@ def contour_prolongation(input_contours,
     # Выбор из срединных линий тех, которые пересекаются с исходными полугоризонталями
     midl_intersect = arcpy.SelectLayerByLocation_management("midlines", "INTERSECT", suppl_lines)
 
-    arcpy.AddMessage("Пересечение срединных линий с полугоризонталями") 
+    arcpy.AddMessage("Intersect middle lines with supplementary lines") 
     # Пересечение исходных полугоризонталей со срединными линиями, на выходе получаем точки
     for_inters = [suppl_lines, midl_intersect]
     inters_point = "intersection_point"
@@ -232,7 +217,7 @@ def contour_prolongation(input_contours,
     arcpy.SplitLineAtPoint_management(midl_intersect, inters_point_single, split_lns, 
                                       search_radius= "1 Meters")
 
-    arcpy.AddMessage("Пространственное объединение точек и срединных линий")
+    arcpy.AddMessage("Spatial join of intersection points and middle lines")
     # Пространственное соединение точек пересечения и отобранных срединных линий, чтобы получить
     # поле высот (Habs)
     sp_join_midl_intersect = "sp_join_midl_intersect"
@@ -240,14 +225,14 @@ def contour_prolongation(input_contours,
                                out_feature_class = sp_join_midl_intersect, join_operation = "JOIN_ONE_TO_ONE", 
                                join_type = "KEEP_ALL", search_radius= "1 Meters")
 
-    arcpy.AddMessage("Работа с каждым отрезком срединной линии")
+    arcpy.AddMessage("Processing of every segment of middle lines")
     # выборка необходимых слоев и полей
     arcpy.MakeFeatureLayer_management(sp_join_midl_intersect, "split_lns")
     arcpy.MakeFeatureLayer_management(inters_point_single, "intersect_pts")
     arcpy.da.SearchCursor(inters_point_single, "FID_new_lines_full")
     midlines_split = arcpy.da.SearchCursor(sp_join_midl_intersect, "OBJECTID")
 
-    arcpy.AddMessage("Выборка точек пересечения")
+    arcpy.AddMessage("Intersection point selection")
     for i in midlines_split:
         # Выделение каждого отрезка срединной линии
         selection = "OBJECTID = {}".format(i[0])       
@@ -278,7 +263,7 @@ def contour_prolongation(input_contours,
                     
 
 
-    arcpy.AddMessage("Создание диаграммы Вороного")
+    arcpy.AddMessage("Creation of Voronoy diagram")
     # создание диаграмм Вороного для всех исходных горизонталей, чтобы далее сделать обрезку срединных линий
     # сначала необходимо уплотнить точки в изолиниях и перевести изолинии в точки
     # копирование слоя, т.к. при уплотнении новый слой не создается
@@ -303,7 +288,7 @@ def contour_prolongation(input_contours,
     arcpy.Delete_management(pts_from_all_lines)
     arcpy.Delete_management(thiess_poly)
 
-    arcpy.AddMessage("Соединение срединных линий с полугоризонталями")
+    arcpy.AddMessage("Merge middli lines with supplemenatry lines")
     # Соединение срединных линий с полугоризонталями
     full_lines_copy = 'full_lines_copy'
     arcpy.CopyFeatures_management(input_contours, full_lines_copy)
@@ -334,7 +319,7 @@ def contour_prolongation(input_contours,
 
     # если в полученном слое OBJECTID_1[0] = NEAR_FID[1] и OBJECTID_1[1] = NEAR_FID[0], 
     # то соединяем эти точки
-    arcpy.AddMessage("Поиск пар точек:")
+    arcpy.AddMessage("Find point pairs:")
     fields = ["OBJECTID", "NEAR_FID", "Habs", "NEAR_DIST"]
     fids_list = []
     # список с точками, которые не подходят
@@ -354,7 +339,7 @@ def contour_prolongation(input_contours,
                 skip_list.append(j[0])
     # print(fids_list)
 
-    arcpy.AddMessage("Перевод точек в линии и запись в них высоты")
+    arcpy.AddMessage("Convert points to lines and write z-values")
     # копирование слоя, чтобы не испортить при присоединении фрагментов линий
     pts_to_lns = "pts_to_lns"
     arcpy.CopyFeatures_management(joined_contours, "joined_cont_copy")
@@ -376,7 +361,7 @@ def contour_prolongation(input_contours,
         # присоединение каждой полилинии к основному массиву
         arcpy.Append_management(pts_to_lns, "joined_cont_copy", "NO_TEST")
 
-    arcpy.AddMessage("Объединение исходных горизонталей с отрезками срединных линий")
+    arcpy.AddMessage("Join input supplementary lines with segments of middle lines")
     # объединение исходных горизонталей с фрагментами по значению высоты (слияние по атрибуту)
     dissolved_final_lns = "dissolved_final_lns"
     arcpy.Dissolve_management("joined_cont_copy", dissolved_final_lns, "Habs")
