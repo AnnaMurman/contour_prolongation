@@ -3,8 +3,6 @@
 # Этот скрипт предназначен для достраивания полугоризонталей. В качестве входных данных используются
 # горизонтали, содержащие значения высоты
 
-# ПЕРЕД ЗАПУСКОМ ОБРАТИТЕ ВНИМАНИЕ НА СТРОКУ 55
-
 # подключение необходимых библиотек 
 import arcpy
 from arcpy.sa import *
@@ -51,13 +49,8 @@ def contour_prolongation(input_contours,
     minVal_2_numpy_array = arcpy.RasterToNumPyArray(minVal_2) 
 
     arcpy.AddMessage("Calculation of the contour interval")
-    # НАЗВАНИЕ ПОЛЯ, СОДЕРЖАЩЕГО ВЫСОТЫ ГОРИЗОНТАЛЕЙ
-    field = "Habs"
-    # ЕСЛИ ПОЛЕ С ВЫСОТАМИ НАЗЫВАЕТСЯ НЕ 'Habs', ТО РАСКОММЕНТИРУЙТЕ СЛЕДУЮЩУЮ СТРОКУ
-    # arcpy.AlterField_management(fc, field, 'Habs') # переименование поля с высотами
-
     # поиск высот горизонталей
-    Hvalues = [row[0] for row in arcpy.da.SearchCursor(input_contours, "Habs")]
+    Hvalues = [row[0] for row in arcpy.da.SearchCursor(input_contours, height_field)]
     uniqueValues = set(Hvalues)
     # конвертация в список, уникальные значения высот
     Hvalues = list(uniqueValues) 
@@ -66,7 +59,7 @@ def contour_prolongation(input_contours,
     heights_unique = list(set(heights))
     # сортировка уникальных значений высот по возрастанию
     heights_unique.sort()
-    arcpy.AddMessage("Unique z-values:")
+    arcpy.AddMessage("Unique z-values: {0}".format(heights_unique))
     print(heights_unique)
 
     # список, в который будут записана высота сечения между соседними горизонталями
@@ -87,7 +80,7 @@ def contour_prolongation(input_contours,
 
     arcpy.AddMessage("Creation of the new field to divide contour lines into intermediate and supplementary")
     arcpy.AddField_management(input_contours, "line_type", "TEXT", field_alias = "line_type")
-    fields = ["Habs", "line_type"]
+    fields = [height_field, "line_type"]
     with arcpy.da.UpdateCursor(input_contours, fields) as cursor:
         for row in cursor:
             # если остаток от деления высоты горизонтали на высоту сечения рельефа равен 0, то это
@@ -122,17 +115,17 @@ def contour_prolongation(input_contours,
     ncols = outEucDistance.width
 
     # Список уникальных значений высот для подвыборки
-    subHvalues = [row[0] for row in arcpy.da.SearchCursor(subset_layer, "Habs")]
+    subHvalues = [row[0] for row in arcpy.da.SearchCursor(subset_layer, height_field)]
     uniqueSubHValues = set(subHvalues)
     subHvalues = list(uniqueSubHValues) # конвертация в список, уникальные значения высот
-    arcpy.AddMessage("Unique z-values:")
+    arcpy.AddMessage("Unique intermediate z-values: {0}".format(subHvalues))
     print(subHvalues)
 
     arcpy.AddMessage("Comparison new euclidean distance with primary one")
     # В этом цикле будет происходить сравнение значений нового евклидового расстояния (ЕР) с изначальным
     for i in subHvalues:
         # Делаем выборку внутри выборки
-        arcpy.SelectLayerByAttribute_management("lyr", "NEW_SELECTION", "Habs = %s" % (i)) # перебор по высотам; 
+        arcpy.SelectLayerByAttribute_management("lyr", "NEW_SELECTION", "%s = %s" % (height_field, i)) # перебор по высотам;
         # %s - формат строки, далее подстановка
         # новое ЕР
         outEucDistance = EucDistance("lyr", maxDistance, cellSize)  
@@ -287,8 +280,9 @@ def contour_prolongation(input_contours,
     arcpy.Delete_management(full_lns_copy)
     arcpy.Delete_management(pts_from_all_lines)
     arcpy.Delete_management(thiess_poly)
+    arcpy.Delete_management("selected_lns")
 
-    arcpy.AddMessage("Merge middli lines with supplemenatry lines")
+    arcpy.AddMessage("Merge middle lines with supplemenatry lines")
     # Соединение срединных линий с полугоризонталями
     full_lines_copy = 'full_lines_copy'
     arcpy.CopyFeatures_management(input_contours, full_lines_copy)
@@ -297,12 +291,12 @@ def contour_prolongation(input_contours,
     fieldMappings.addTable(full_lines_copy)
     fieldMappings.addTable(clipped_lns_by_polyg)
     fldMap = arcpy.FieldMap()
-    fldMap.addInputField(full_lines_copy, "Habs")
+    fldMap.addInputField(full_lines_copy, height_field)
     fieldMappings.addFieldMap(fldMap)
 
     # удаление всех атрибутов, кроме высоты и ID
     for field in fieldMappings.fields:
-        if field.name not in ["OBJECTID", "Habs"]:
+        if field.name not in ["OBJECTID", height_field]:
             fieldMappings.removeFieldMap(fieldMappings.findFieldMapIndex(field.name))
 
     joined_contours = "joined_contours"
@@ -320,7 +314,7 @@ def contour_prolongation(input_contours,
     # если в полученном слое OBJECTID_1[0] = NEAR_FID[1] и OBJECTID_1[1] = NEAR_FID[0], 
     # то соединяем эти точки
     arcpy.AddMessage("Find point pairs:")
-    fields = ["OBJECTID", "NEAR_FID", "Habs", "NEAR_DIST"]
+    fields = ["OBJECTID", "NEAR_FID", height_field, "NEAR_DIST"]
     fids_list = []
     # список с точками, которые не подходят
     skip_list = []
@@ -350,8 +344,8 @@ def contour_prolongation(input_contours,
         selected_pairs = arcpy.SelectLayerByAttribute_management("end_pts_from_lns", "NEW_SELECTION", pts_ids)
         arcpy.PointsToLine_management(selected_pairs, "pts_to_lns")
         # создание поля для записи высоты
-        arcpy.AddField_management(pts_to_lns, "Habs", "FLOAT")
-        addH = arcpy.da.UpdateCursor("pts_to_lns", ["OBJECTID", "Shape", "Shape_Length", "Habs"])
+        arcpy.AddField_management(pts_to_lns, height_field, "FLOAT")
+        addH = arcpy.da.UpdateCursor("pts_to_lns", ["OBJECTID", "Shape", "Shape_Length", height_field])
         # запись высоты в поле Habs
         for h in addH:
             h[3] = i[2]
@@ -359,12 +353,12 @@ def contour_prolongation(input_contours,
         del h, addH
 
         # присоединение каждой полилинии к основному массиву
-        arcpy.Append_management(pts_to_lns, "joined_cont_copy", "NO_TEST")
+        arcpy.Append_management("pts_to_lns", "joined_cont_copy", "NO_TEST")
 
     arcpy.AddMessage("Join input supplementary lines with segments of middle lines")
     # объединение исходных горизонталей с фрагментами по значению высоты (слияние по атрибуту)
     dissolved_final_lns = "dissolved_final_lns"
-    arcpy.Dissolve_management("joined_cont_copy", dissolved_final_lns, "Habs")
+    arcpy.Dissolve_management("joined_cont_copy", dissolved_final_lns, height_field)
 
     # перевод изолиний в отдельные объекты
     final_lines = output_contours
@@ -374,7 +368,7 @@ def contour_prolongation(input_contours,
     arcpy.DeleteField_management(output_contours, "ORIG_FID")
 
     # создание shape-файла с новыми горизонталями
-    # arcpy.FeatureClassToFeatureClass_conversion(final_lines, , "finally_processed_lns.shp") 
+    # arcpy.FeatureClassToFeatureClass_conversion(final_lines, "finally_processed_lns.shp") 
 
 
 if __name__ == '__main__':
